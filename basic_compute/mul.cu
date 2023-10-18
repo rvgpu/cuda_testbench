@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <gtest/gtest.h>
 
-__global__ void axpy(int a, float *x, float *y)
+__global__ void mul(int a, float *x, float *y)
 {
     y[threadIdx.x] = a * x[threadIdx.x];
 }
@@ -9,12 +9,17 @@ __global__ void axpy(int a, float *x, float *y)
 // int main()a
 TEST(BasicCudaTest, MultiAnInteger)
 {
-    const int kDataLen = 4;
+    int kDataLen = 64;
 
     int a = 2;
-    float in[kDataLen] = {1.0f, 2.0f, 3.0f, 4.0f};
-    float result[kDataLen];
-    float reference[kDataLen];
+    float *in                   = new float[kDataLen];
+    float *result               = new float[kDataLen];
+    float *reference            = new float[kDataLen];
+    for (int i=0; i<kDataLen; ++i) {
+        in[i] = float(i);
+        result[i] = -1.0f;
+        reference[i] = -2.0f;
+    }
 
     // Device Function
     float *device_in;
@@ -22,7 +27,7 @@ TEST(BasicCudaTest, MultiAnInteger)
     cudaMalloc(&device_in, kDataLen * sizeof(float));
     cudaMalloc(&device_out, kDataLen * sizeof(float));
     cudaMemcpy(device_in, in, kDataLen * sizeof(float), cudaMemcpyHostToDevice);
-    axpy<<<1, kDataLen>>>(a, device_in, device_out);
+    mul<<<1, kDataLen>>>(a, device_in, device_out);
 
     // Copy output data to host
     cudaDeviceSynchronize();
