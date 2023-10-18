@@ -21,7 +21,7 @@ __global__ void div(float *x, float *y, float *out)
     out[threadIdx.x] = x[threadIdx.x] / y[threadIdx.x];
 }
 
-class CUDAFloatArrayTest : public ::testing::Test {
+class CUDATestOfArrayFloat : public ::testing::Test {
 protected:
     void SetUp() override {
         kDataLen    = 64;
@@ -66,7 +66,7 @@ protected:
 };
 
 // int main()
-TEST_F(CUDAFloatArrayTest, Add)
+TEST_F(CUDATestOfArrayFloat, Add)
 {
     add<<<1, kDataLen>>>(device_in1, device_in2, device_out);
     // Copy output data to host
@@ -80,7 +80,7 @@ TEST_F(CUDAFloatArrayTest, Add)
     }
 }
 
-TEST_F(CUDAFloatArrayTest, Sub)
+TEST_F(CUDATestOfArrayFloat, Sub)
 {
     sub<<<1, kDataLen>>>(device_in1, device_in2, device_out);
     // Copy output data to host
@@ -94,7 +94,7 @@ TEST_F(CUDAFloatArrayTest, Sub)
     }
 }
 
-TEST_F(CUDAFloatArrayTest, Mul)
+TEST_F(CUDATestOfArrayFloat, Mul)
 {
     mul<<<1, kDataLen>>>(device_in1, device_in2, device_out);
     // Copy output data to host
@@ -108,7 +108,7 @@ TEST_F(CUDAFloatArrayTest, Mul)
     }
 }
 
-TEST_F(CUDAFloatArrayTest, Div)
+TEST_F(CUDATestOfArrayFloat, Div)
 {
     div<<<1, kDataLen>>>(device_in1, device_in2, device_out);
     // Copy output data to host
