@@ -7,7 +7,7 @@ __global__ void axpy(int a, float *x, float *y)
 }
 
 // int main()a
-TEST(Hello, BasicAssersions)
+TEST(BasicCudaTest, MultiAnInteger)
 {
     const int kDataLen = 4;
 
