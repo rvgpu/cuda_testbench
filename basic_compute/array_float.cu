@@ -1,51 +1,37 @@
 #include <cstdio>
 #include <gtest/gtest.h>
 
-__global__ void add(float *x, float *y, float *out)
-{
-    out[threadIdx.x] = x[threadIdx.x] + y[threadIdx.x];
-}
+template <typename T> __global__ void add(T *x, T *y, T *out) { out[threadIdx.x] = x[threadIdx.x] + y[threadIdx.x]; }
+template <typename T> __global__ void sub(T *x, T *y, T *out) { out[threadIdx.x] = x[threadIdx.x] - y[threadIdx.x]; }
+template <typename T> __global__ void mul(T *x, T *y, T *out) { out[threadIdx.x] = x[threadIdx.x] * y[threadIdx.x]; }
+template <typename T> __global__ void div(T *x, T *y, T *out) { out[threadIdx.x] = x[threadIdx.x] / y[threadIdx.x]; }
 
-__global__ void sub(float *x, float *y, float *out)
-{
-    out[threadIdx.x] = x[threadIdx.x] - y[threadIdx.x];
-}
-
-__global__ void mul(float *x, float *y, float *out)
-{
-    out[threadIdx.x] = x[threadIdx.x] * y[threadIdx.x];
-}
-
-__global__ void div(float *x, float *y, float *out)
-{
-    out[threadIdx.x] = x[threadIdx.x] / y[threadIdx.x];
-}
-
-class CUDATestOfArrayFloat : public ::testing::Test {
-protected:
-    void SetUp() override {
-        kDataLen    = 64;
-        in1         = new float[kDataLen];
-        in2         = new float[kDataLen];
-        result      = new float[kDataLen];
-        reference   = new float[kDataLen];
+template<typename T>
+class CUDAArrayTest {
+public:
+    CUDAArrayTest() {
+        kDataLen    = 1024;
+        in1         = new T[kDataLen];
+        in2         = new T[kDataLen];
+        result      = new T[kDataLen];
+        reference   = new T[kDataLen];
 
         for (int i=0; i<kDataLen; ++i) {
-            in1[i] = float(i);
-            in2[i] = float(i) + 100.0f;
-            result[i] = -1.0f;
-            reference[i] = -2.0f;
+            in1[i] = i * 11.0f;
+            in2[i] = i + 100.0f;
+            result[i] = 12;
+            reference[i] = 34;
         }
 
-        cudaMalloc(&device_in1, kDataLen * sizeof(float));
-        cudaMalloc(&device_in2, kDataLen * sizeof(float));
-        cudaMalloc(&device_out, kDataLen * sizeof(float));
+        cudaMalloc(&device_in1, kDataLen * sizeof(T));
+        cudaMalloc(&device_in2, kDataLen * sizeof(T));
+        cudaMalloc(&device_out, kDataLen * sizeof(T));
 
-        cudaMemcpy(device_in1, in1, kDataLen * sizeof(float), cudaMemcpyHostToDevice);
-        cudaMemcpy(device_in2, in2, kDataLen * sizeof(float), cudaMemcpyHostToDevice);
+        cudaMemcpy(device_in1, in1, kDataLen * sizeof(T), cudaMemcpyHostToDevice);
+        cudaMemcpy(device_in2, in2, kDataLen * sizeof(T), cudaMemcpyHostToDevice);
     }
 
-    void TearDown() override {
+    ~CUDAArrayTest() {
         delete in1;
         delete in2;
         delete result;
@@ -54,70 +40,76 @@ protected:
         cudaDeviceReset();
     }
 
-    int kDataLen;
-    float *in1;
-    float *in2;
-    float *result;
-    float *reference;
+    void getResultData() {
+        cudaDeviceSynchronize();
+        cudaMemcpy(result, device_out, kDataLen * sizeof(T), cudaMemcpyDeviceToHost);
+    }
 
-    float *device_in1;
-    float *device_in2;
-    float *device_out;
+    void runKernelAdd(void) { 
+        add<T><<<1, kDataLen>>>(device_in1, device_in2, device_out); 
+        getResultData();
+
+        // print the results
+        for (int i=0; i<kDataLen; ++i) {
+            reference[i] = in1[i] + in2[i];
+            EXPECT_DOUBLE_EQ(result[i], reference[i]);
+        }
+    }
+    
+    void runKernelSub(void) { 
+        sub<T><<<1, kDataLen>>>(device_in1, device_in2, device_out); 
+        getResultData();
+
+        // print the results
+        for (int i=0; i<kDataLen; ++i) {
+            reference[i] = in1[i] - in2[i];
+            EXPECT_DOUBLE_EQ(result[i], reference[i]);
+        }
+    }
+    
+    void runKernelMul(void) {
+        mul<T><<<1, kDataLen>>>(device_in1, device_in2, device_out); 
+        getResultData();
+
+        // print the results
+        for (int i=0; i<kDataLen; ++i) {
+            reference[i] = in1[i] * in2[i];
+            EXPECT_DOUBLE_EQ(result[i], reference[i]);
+        }
+    }
+
+    void runKernelDiv(void) {
+        cudaMemcpy(device_in2, in2, kDataLen * sizeof(T), cudaMemcpyHostToDevice);
+
+        div<T><<<1, kDataLen>>>(device_in1, device_in2, device_out);
+        getResultData();
+
+        // print the results
+        for (int i=0; i<kDataLen; ++i) {
+            reference[i] = in1[i] / in2[i];
+            EXPECT_DOUBLE_EQ(result[i], reference[i]);
+        }
+    }
+
+    int kDataLen;
+    T *in1;
+    T *in2;
+    T *result;
+    T *reference;
+
+    T *device_in1;
+    T *device_in2;
+    T *device_out;
 };
 
-// int main()
-TEST_F(CUDATestOfArrayFloat, Add)
-{
-    add<<<1, kDataLen>>>(device_in1, device_in2, device_out);
-    // Copy output data to host
-    cudaDeviceSynchronize();
-    cudaMemcpy(result, device_out, kDataLen * sizeof(float), cudaMemcpyDeviceToHost);
+TEST(CUDAArrayTest_F, Add_float)  { auto test = new CUDAArrayTest<float>;  test->runKernelAdd(); delete test; }
+TEST(CUDAArrayTest_F, Add_double) { auto test = new CUDAArrayTest<double>; test->runKernelAdd(); delete test; }
 
-    // print the results
-    for (int i=0; i<kDataLen; ++i) {
-        reference[i] = in1[i] + in2[i];
-        EXPECT_FLOAT_EQ(result[i], reference[i]);
-    }
-}
+TEST(CUDAArrayTest_F, Sub_float)  { auto test = new CUDAArrayTest<float>;  test->runKernelSub(); delete test; }
+TEST(CUDAArrayTest_F, Sub_double) { auto test = new CUDAArrayTest<double>; test->runKernelSub(); delete test; }
 
-TEST_F(CUDATestOfArrayFloat, Sub)
-{
-    sub<<<1, kDataLen>>>(device_in1, device_in2, device_out);
-    // Copy output data to host
-    cudaDeviceSynchronize();
-    cudaMemcpy(result, device_out, kDataLen * sizeof(float), cudaMemcpyDeviceToHost);
+TEST(CUDAArrayTest_F, Mul_float)  { auto test = new CUDAArrayTest<float>;  test->runKernelMul(); delete test; }
+TEST(CUDAArrayTest_F, Mul_double) { auto test = new CUDAArrayTest<double>; test->runKernelMul(); delete test; }
 
-    // print the results
-    for (int i=0; i<kDataLen; ++i) {
-        reference[i] = in1[i] - in2[i];
-        EXPECT_FLOAT_EQ(result[i], reference[i]);
-    }
-}
-
-TEST_F(CUDATestOfArrayFloat, Mul)
-{
-    mul<<<1, kDataLen>>>(device_in1, device_in2, device_out);
-    // Copy output data to host
-    cudaDeviceSynchronize();
-    cudaMemcpy(result, device_out, kDataLen * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // print the results
-    for (int i=0; i<kDataLen; ++i) {
-        reference[i] = in1[i] * in2[i];
-        EXPECT_FLOAT_EQ(result[i], reference[i]);
-    }
-}
-
-TEST_F(CUDATestOfArrayFloat, Div)
-{
-    div<<<1, kDataLen>>>(device_in1, device_in2, device_out);
-    // Copy output data to host
-    cudaDeviceSynchronize();
-    cudaMemcpy(result, device_out, kDataLen * sizeof(float), cudaMemcpyDeviceToHost);
-
-    // print the results
-    for (int i=0; i<kDataLen; ++i) {
-        reference[i] = in1[i] / in2[i];
-        EXPECT_FLOAT_EQ(result[i], reference[i]);
-    }
-}
+TEST(CUDAArrayTest_F, Div_float)  { auto test = new CUDAArrayTest<float>;  test->runKernelDiv(); delete test; }
+TEST(CUDAArrayTest_F, Div_double) { auto test = new CUDAArrayTest<double>; test->runKernelDiv(); delete test; }
