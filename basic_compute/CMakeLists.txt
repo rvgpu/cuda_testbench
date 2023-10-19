@@ -3,5 +3,4 @@ function(add_cudatb_basic fname)
 endfunction()
 
 add_cudatb_basic(mul)
-add_cudatb_basic(array_float)
 add_cudatb_basic(array_int)
