@@ -19,7 +19,7 @@ protected:
         cudaMalloc(&device_out, maxThreads * sizeof(float));  
     };
 
-    void TearDown() {
+    void TearDown() override {
         delete in1;
         delete in2;
         delete result;
