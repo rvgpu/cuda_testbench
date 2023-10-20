@@ -5,6 +5,8 @@ template <typename T> __global__ void add(T *x, T *y, T *out) { out[threadIdx.x]
 template <typename T> __global__ void sub(T *x, T *y, T *out) { out[threadIdx.x] = x[threadIdx.x] - y[threadIdx.x]; }
 template <typename T> __global__ void mul(T *x, T *y, T *out) { out[threadIdx.x] = x[threadIdx.x] * y[threadIdx.x]; }
 template <typename T> __global__ void div(T *x, T *y, T *out) { out[threadIdx.x] = x[threadIdx.x] / y[threadIdx.x]; }
+__global__ void mul(int a, float *x, float *out) { out[threadIdx.x] = a * x[threadIdx.x]; }
+__global__ void mul(float a, float *x, float *out) { out[threadIdx.x] = a * x[threadIdx.x]; }
 
 template<typename T>
 class CUDAArrayTest {
@@ -86,6 +88,70 @@ public:
     T *device_out;
 };
 
+template <typename OP_INARRAY_T, typename OP_INPUT_T, int array_size=1>
+class ArrayWithAnOperand {
+public:
+    ArrayWithAnOperand()  {
+        in                   = new OP_INARRAY_T[array_size];
+        result               = new OP_INARRAY_T[array_size];
+        reference            = new OP_INARRAY_T[array_size];
+        for (int i=0; i<array_size; ++i) {
+            result[i] = -1;
+            reference[i] = -2;
+        }
+        cudaMalloc(&device_in, array_size * sizeof(OP_INARRAY_T));
+        cudaMalloc(&device_out, array_size * sizeof(OP_INARRAY_T));
+    }
+
+    ~ArrayWithAnOperand() {
+        delete in;
+        delete result;
+        delete reference;
+    }
+    OP_INARRAY_T* make_array() {
+        for (auto i = 0; i < array_size; i++) {
+            in[i] = OP_INARRAY_T(i);
+        }
+        return in;
+    }
+
+    OP_INARRAY_T * make_mul_reference(OP_INPUT_T in1, OP_INARRAY_T* in2) {
+        // print the results
+        for (int i=0; i<array_size; ++i) {
+            reference[i] = in1 * in2[i];
+        }
+        return reference;
+    }
+
+    void expect_eq(OP_INARRAY_T* in1, OP_INARRAY_T* in2) {
+        for (int i=0; i<array_size; ++i) {
+            if (std::is_same<OP_INARRAY_T, float>::value) {
+                EXPECT_FLOAT_EQ(result[i], reference[i]);
+            }else {
+                EXPECT_EQ(result[i], reference[i]);
+            }
+        }
+    }
+    OP_INARRAY_T * array_mul_by(OP_INPUT_T in1, OP_INARRAY_T* in2) {
+        cudaMemcpy(device_in, in2, array_size * sizeof(OP_INARRAY_T), cudaMemcpyHostToDevice);
+
+        mul<<<1, array_size>>>(in1, device_in, device_out);
+        cudaDeviceSynchronize();
+        cudaMemcpy(result, device_out, array_size * sizeof(OP_INARRAY_T), cudaMemcpyDeviceToHost);
+
+        cudaDeviceReset();
+        return result;
+    }
+
+    OP_INARRAY_T *device_in;
+    OP_INARRAY_T *in;
+
+private:
+    OP_INARRAY_T *result;
+    OP_INARRAY_T *reference;
+    OP_INARRAY_T *device_out;
+};
+
 TEST(CUDAArrayTest_F, Add_ui64) { auto test = new CUDAArrayTest<uint64_t>; test->runKernelAdd(); test->compareInteger(); delete test; }
 TEST(CUDAArrayTest_F, Add_ui32) { auto test = new CUDAArrayTest<uint32_t>; test->runKernelAdd(); test->compareInteger(); delete test; }
 TEST(CUDAArrayTest_F, Add_ui16) { auto test = new CUDAArrayTest<uint16_t>; test->runKernelAdd(); test->compareInteger(); delete test; }
@@ -133,3 +199,23 @@ TEST(CUDAArrayTest_F, Mul_double) { auto test = new CUDAArrayTest<double>; test-
 
 TEST(CUDAArrayTest_F, Div_float)  { auto test = new CUDAArrayTest<float>;  test->runKernelDiv(); test->compareFloat();   delete test; }
 TEST(CUDAArrayTest_F, Div_double) { auto test = new CUDAArrayTest<double>; test->runKernelDiv(); test->compareFloat();   delete test; }
+
+TEST(ArrayWithAnOperand, float_array_mul_by_int) {
+auto basic_test = ArrayWithAnOperand<float, int, 2>();
+float* array = basic_test.make_array();
+
+auto res = basic_test.array_mul_by(2, array);
+auto ref = basic_test.make_mul_reference(2, array);
+
+basic_test.expect_eq(res, ref);
+}
+
+TEST(ArrayWithAnOperand, float_array_mul_by_float) {
+auto basic_test = ArrayWithAnOperand<float, float, 2>();
+float* array = basic_test.make_array();
+
+auto res = basic_test.array_mul_by(1.5, array);
+auto ref = basic_test.make_mul_reference(1.5, array);
+
+basic_test.expect_eq(res, ref);
+}
