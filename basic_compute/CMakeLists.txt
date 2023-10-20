@@ -4,3 +4,4 @@ endfunction()
 
 add_cudatb_basic(mul)
 add_cudatb_basic(array_int)
+add_cudatb_basic(thread_num)
