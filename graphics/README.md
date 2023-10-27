@@ -27,3 +27,4 @@ nvcc triangle.cu
 
 * triangle，一个三角形，具有线性插值的颜色
 * games101_hw1，一个白色的线框三角形
+* games101_hw4，一条黄色的Bazier曲线
