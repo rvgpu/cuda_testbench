@@ -87,7 +87,7 @@ int main() {
     cudaMemcpy(fs_in_triangle, &t, sizeof(struct triangle), cudaMemcpyHostToDevice);
 
     dim3 threads_per_block(32, 32, 1);
-    dim3 num_blocks(WIDTH / 32, HEIGHT / 32, 1);
+    dim3 num_blocks((WIDTH - 1) / 32 + 1, (HEIGHT - 1) / 32 + 1, 1);
 
     fragment_shader<<<num_blocks, threads_per_block>>>(fs_in_triangle, fs_out_color_buffer);
 
