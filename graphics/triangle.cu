@@ -15,6 +15,10 @@ __global__ void fragment_shader(
     uint32_t pixel_x = blockIdx.x * blockDim.x + threadIdx.x;
     uint32_t pixel_y = blockIdx.y * blockDim.y + threadIdx.y;
 
+    if (pixel_x >= WIDTH || pixel_y >= HEIGHT) {
+        return;
+    }
+
     struct triangle t = *in_triangle;
 
     float v0_x = t.v[0][0];
