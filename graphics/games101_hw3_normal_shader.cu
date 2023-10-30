@@ -1,14 +1,15 @@
+#include "OBJ_Loader.h"
 #include <eigen3/Eigen/Eigen>
+#include <opencv2/opencv.hpp>
 
 #include "config.hpp"
 #include "common.hpp"
 
-#define VERTEX_COUNT 6
-#define TRIANGLE_COUNT (VERTEX_COUNT / 3)
-
 struct triangle {
     Eigen::Vector4f v[3];
     Eigen::Vector3f color[3];
+    Eigen::Vector2f tex_coords[3];
+    Eigen::Vector3f normal[3];
 };
 
 struct box_info {
@@ -19,17 +20,21 @@ struct box_info {
 };
 
 __global__ void vertex_shader(
-    Eigen::Vector3f *in_positions,
+    Eigen::Vector4f *in_positions,
     Eigen::Matrix4f *in_model,
     Eigen::Matrix4f *in_view,
     Eigen::Matrix4f *in_projection,
+    uint32_t *in_vertex_num,
     Eigen::Vector4f *out_positions
 ) {
-    uint32_t i = threadIdx.x;
+    uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (i >= *in_vertex_num) {
+        return;
+    }
 
     // MVP
-    Eigen::Vector4f pos;
-    pos << in_positions[i], 1.0;
+    Eigen::Vector4f pos = in_positions[i];
     pos = (*in_projection) * (*in_view) * (*in_model) * pos;
 
     // Homogeneous division
@@ -111,11 +116,14 @@ __global__ void fragment_shader(
         if (z > out_depth_buffer[pixel_id]) {
             out_depth_buffer[pixel_id] = z;
 
-            Eigen::Vector3f color = bary0 * t.color[0] + bary1 * t.color[1] + bary2 * t.color[2];
+            Eigen::Vector3f interpolated_normal = bary0 * t.normal[0] + bary1 * t.normal[1] + bary2 * t.normal[2];
+            interpolated_normal = interpolated_normal.normalized();
 
-            out_color_buffer[pixel_id * 4 + 0] = (uint8_t)color[0];
-            out_color_buffer[pixel_id * 4 + 1] = (uint8_t)color[1];
-            out_color_buffer[pixel_id * 4 + 2] = (uint8_t)color[2];
+            Eigen::Vector3f color = (interpolated_normal + Eigen::Vector3f(1.0f, 1.0f, 1.0f)) / 2.0f;
+
+            out_color_buffer[pixel_id * 4 + 0] = (uint8_t)(color[0] * 255);
+            out_color_buffer[pixel_id * 4 + 1] = (uint8_t)(color[1] * 255);
+            out_color_buffer[pixel_id * 4 + 2] = (uint8_t)(color[2] * 255);
             out_color_buffer[pixel_id * 4 + 3] = 255;
         }
     }
@@ -123,63 +131,94 @@ __global__ void fragment_shader(
 
 int main() {
     // 1. Data preparation
-    Eigen::Vector3f positions[VERTEX_COUNT] = {
-        {2, 0, -2},
-        {0, 2, -2},
-        {-2, 0, -2},
-        {3.5, -1, -5},
-        {2.5, 1.5, -5},
-        {-1, 0.5, -5}
-    };
-    Eigen::Vector3f colors[VERTEX_COUNT] = {
-        {217.0, 238.0, 185.0},
-        {217.0, 238.0, 185.0},
-        {217.0, 238.0, 185.0},
-        {185.0, 217.0, 238.0},
-        {185.0, 217.0, 238.0},
-        {185.0, 217.0, 238.0}
-    };
-    float angle = 0;
-    Eigen::Vector3f eye_pos = {0, 0, 5};
-    Eigen::Matrix4f model = get_model_matrix(angle);
+    // 1.1 Matrices
+    float angle = 140.0;
+    Eigen::Vector3f eye_pos = {0,0,10};
+
+    Eigen::Matrix4f model = get_model_matrix_hw3(angle);
     Eigen::Matrix4f view = get_view_matrix(eye_pos);
     Eigen::Matrix4f projection = get_projection_matrix(45, 1, 0.1, 50);
 
+    // 1.2 Triangles
+    std::vector<struct triangle *> TriangleList;
+    objl::Loader Loader;
+
+    std::string obj_path = "./models/spot/";
+
+    // Load .obj File
+    bool loadout = Loader.LoadFile(obj_path + "spot_triangulated_good.obj");
+
+    for(auto mesh : Loader.LoadedMeshes)
+    {
+        for(unsigned int i = 0; i < mesh.Vertices.size(); i += 3)
+        {
+            struct triangle *t = (struct triangle *) malloc(sizeof(struct triangle));
+
+            for(int j = 0; j < 3; j++)
+            {
+                t->v[j] = Eigen::Vector4f(
+                    mesh.Vertices[i+j].Position.X,
+                    mesh.Vertices[i+j].Position.Y,
+                    mesh.Vertices[i+j].Position.Z,
+                    1.0);
+
+                t->normal[j] = Eigen::Vector3f(
+                    mesh.Vertices[i+j].Normal.X,
+                    mesh.Vertices[i+j].Normal.Y,
+                    mesh.Vertices[i+j].Normal.Z);
+
+                t->tex_coords[j] = Eigen::Vector2f(
+                    mesh.Vertices[i+j].TextureCoordinate.X,
+                    mesh.Vertices[i+j].TextureCoordinate.Y);
+            }
+
+            TriangleList.push_back(t);
+        }
+    }
+
+    uint32_t triangle_num = TriangleList.size();
+    uint32_t vertex_num = triangle_num * 3;
+
+    Eigen::Vector4f *positions = (Eigen::Vector4f *) malloc(vertex_num * sizeof(Eigen::Vector4f));
+
+    for (uint32_t i = 0; i < triangle_num; i ++) {
+        positions[i * 3 + 0] = TriangleList[i]->v[0];
+        positions[i * 3 + 1] = TriangleList[i]->v[1];
+        positions[i * 3 + 2] = TriangleList[i]->v[2];
+    }
+
     // 2. Vertex shader
-    Eigen::Vector3f *vs_in_positions;
+    Eigen::Vector4f *vs_in_positions;
     Eigen::Matrix4f *vs_in_model;
     Eigen::Matrix4f *vs_in_view;
     Eigen::Matrix4f *vs_in_projection;
+    uint32_t *vs_in_vertex_num;
     Eigen::Vector4f *vs_out_positions;
 
-    cudaMalloc(&vs_in_positions, VERTEX_COUNT * sizeof(Eigen::Vector3f));
+    cudaMalloc(&vs_in_positions, vertex_num * sizeof(Eigen::Vector4f));
     cudaMalloc(&vs_in_model, sizeof(Eigen::Matrix4f));
     cudaMalloc(&vs_in_view, sizeof(Eigen::Matrix4f));
     cudaMalloc(&vs_in_projection, sizeof(Eigen::Matrix4f));
-    cudaMalloc(&vs_out_positions, VERTEX_COUNT * sizeof(Eigen::Vector4f));
+    cudaMalloc(&vs_in_vertex_num, sizeof(uint32_t));
+    cudaMalloc(&vs_out_positions, vertex_num * sizeof(Eigen::Vector4f));
 
-    cudaMemcpy(vs_in_positions, positions, VERTEX_COUNT * sizeof(Eigen::Vector3f), cudaMemcpyHostToDevice);
+    cudaMemcpy(vs_in_positions, positions, vertex_num * sizeof(Eigen::Vector4f), cudaMemcpyHostToDevice);
     cudaMemcpy(vs_in_model, &model, sizeof(Eigen::Matrix4f), cudaMemcpyHostToDevice);
     cudaMemcpy(vs_in_view, &view, sizeof(Eigen::Matrix4f), cudaMemcpyHostToDevice);
     cudaMemcpy(vs_in_projection, &projection, sizeof(Eigen::Matrix4f), cudaMemcpyHostToDevice);
+    cudaMemcpy(vs_in_vertex_num, &vertex_num, sizeof(uint32_t), cudaMemcpyHostToDevice);
 
-    vertex_shader<<<1, VERTEX_COUNT>>>(vs_in_positions, vs_in_model, vs_in_view, vs_in_projection, vs_out_positions);
+    dim3 vs_threads_per_block(1024, 1, 1);
+    dim3 vs_num_blocks((vertex_num - 1) / 1024 + 1, 1, 1);
+
+    vertex_shader<<<vs_num_blocks, vs_threads_per_block>>>(vs_in_positions, vs_in_model, vs_in_view, vs_in_projection, vs_in_vertex_num, vs_out_positions);
 
     cudaDeviceSynchronize();
 
     // 3. Fragment shader
-    Eigen::Vector4f *fs_positions = (Eigen::Vector4f *) malloc(VERTEX_COUNT * sizeof(Eigen::Vector4f));
+    Eigen::Vector4f *fs_positions = (Eigen::Vector4f *) malloc(vertex_num * sizeof(Eigen::Vector4f));
 
-    cudaMemcpy(fs_positions, vs_out_positions, VERTEX_COUNT * sizeof(Eigen::Vector4f), cudaMemcpyDeviceToHost);
-
-    struct triangle triangles[TRIANGLE_COUNT];
-
-    for (int i = 0; i < TRIANGLE_COUNT; i++) {
-        for (int j = 0; j < 3; j++) {
-            triangles[i].v[j] = fs_positions[(i * 3) + j];
-            triangles[i].color[j] = colors[(i * 3) + j];
-        }
-    }
+    cudaMemcpy(fs_positions, vs_out_positions, vertex_num * sizeof(Eigen::Vector4f), cudaMemcpyDeviceToHost);
 
     struct triangle *fs_in_triangle;
     struct box_info *fs_in_box;
@@ -198,9 +237,22 @@ int main() {
 
     cudaMemcpy(fs_out_depth_buffer, depth_buffer, WIDTH * HEIGHT * sizeof(float), cudaMemcpyHostToDevice);
 
+    Eigen::Matrix4f view_model = view * model;
+    Eigen::Matrix4f inv_trans = view_model.inverse().transpose();
+
     // Iterate over triangles
-    for (int i = 0; i < TRIANGLE_COUNT; i++) {
-        struct triangle t = triangles[i];
+    for (int i = 0; i < triangle_num; i++) {
+        struct triangle t;
+
+        Eigen::Vector4f viewspace_normal[3];
+
+        for (int j = 0; j < 3; j++) {
+            t.v[j] = fs_positions[i * 3 + j];
+
+            viewspace_normal[j] << TriangleList[i]->normal[j], 0.0f;
+            viewspace_normal[j] = inv_trans * viewspace_normal[j];
+            t.normal[j] = viewspace_normal[j].head<3>();
+        }
 
         Eigen::Vector3f triangle_x(t.v[0].x(), t.v[1].x(), t.v[2].x());
         Eigen::Vector3f triangle_y(t.v[0].y(), t.v[1].y(), t.v[2].y());
@@ -248,5 +300,5 @@ int main() {
         }
     }
 
-    write_ppm("games101_hw2", WIDTH, HEIGHT, image);
+    write_ppm("games101_hw3_normal_shader", WIDTH, HEIGHT, image);
 }
