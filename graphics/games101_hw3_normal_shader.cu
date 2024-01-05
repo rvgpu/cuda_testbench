@@ -143,7 +143,7 @@ int main() {
     std::vector<struct triangle *> TriangleList;
     objl::Loader Loader;
 
-    std::string obj_path = "./models/spot/";
+    std::string obj_path = "../models/spot/";
 
     // Load .obj File
     bool loadout = Loader.LoadFile(obj_path + "spot_triangulated_good.obj");

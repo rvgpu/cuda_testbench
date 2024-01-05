@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.10)
+project(Graphics)
+
+find_package(CUDA REQUIRED)
+find_package(OpenCV REQUIRED)
+
+cuda_add_executable(games101_hw1 games101_hw1.cu)
+cuda_add_executable(games101_hw2 games101_hw2.cu)
+cuda_add_executable(games101_hw3_normal_shader games101_hw3_normal_shader.cu)
+cuda_add_executable(games101_hw4 games101_hw4.cu)
+
+target_link_libraries(games101_hw3_normal_shader ${OpenCV_LIBRARIES})
