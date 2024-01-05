@@ -27,5 +27,7 @@ make -j8
 ./games101_hw1
 ./games101_hw2
 ./games101_hw3_normal_shader
+./games101_hw3_phong_shader
+./games101_hw3_texture_shader
 ./games101_hw4
 ```
