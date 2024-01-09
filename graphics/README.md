@@ -30,5 +30,6 @@ make -j8
 ./games101_hw3_phong_shader
 ./games101_hw3_texture_shader
 ./games101_hw3_bump_shader
+./games101_hw3_displacement_shader
 ./games101_hw4
 ```
